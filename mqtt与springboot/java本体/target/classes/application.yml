@@ -1,0 +1,15 @@
+server:
+  port: 8080
+
+mqtt:
+  broker: tcp://192.168.219.205:1883
+  username: ''
+  password: ''
+  client-id: springboot-mqtt
+
+  default-topic: esp8266/send
+  additional-topics: esp8266/recv
+
+  qos: 1
+  timeout: 30
+  keepalive: 60

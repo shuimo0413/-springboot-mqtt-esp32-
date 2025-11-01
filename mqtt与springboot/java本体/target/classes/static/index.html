@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MQTT 方向控制</title>
+    <script src="https://unpkg.com/axios/dist/axios.min.js"></script>
+</head>
+<body>
+    <h1>按 W/A/S/D 控制贪吃蛇</h1>
+
+    <script>
+        document.addEventListener('keydown', function(event) {
+            const key = event.key.toLowerCase(); // 转为小写
+            if (['w', 'a', 's', 'd'].includes(key)) {
+                console.log(key + ' 键按下');
+
+                // 构造请求数据
+                const payload = {
+                    message: key,
+                    topic: "esp8266/recv"
+                };
+
+                // 发送 POST 请求
+                axios.post("http://localhost:8080/mqtt/send", payload, {
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                })
+                .then(response => {
+                    console.log("发送成功:", response.data);
+                })
+                .catch(error => {
+                    console.error("发送失败:", error);
+                });
+            }
+        });
+    </script>
+</body>
+</html>
