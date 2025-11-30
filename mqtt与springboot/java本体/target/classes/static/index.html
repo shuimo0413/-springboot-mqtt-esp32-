@@ -3,38 +3,250 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MQTT 方向控制</title>
+    <title>可拖动摇杆控制（定时发送-45°）</title>
     <script src="https://unpkg.com/axios/dist/axios.min.js"></script>
+    <style>
+        body {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 20px;
+            padding-top: 50px;
+        }
+
+        /* 摇杆容器（圆形区域） */
+        .joystick-container {
+            position: relative;
+            width: 300px;
+            height: 300px;
+            border: 4px solid #333;
+            border-radius: 50%;
+            background-color: #f0f0f0;
+            overflow: hidden;
+        }
+
+        /* 中心原点标记 */
+        .joystick-origin {
+            position: absolute;
+            width: 10px;
+            height: 10px;
+            background-color: #ff0000;
+            border-radius: 50%;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 1;
+        }
+
+        /* 可拖动的控制点 */
+        .joystick-control {
+            position: absolute;
+            width: 60px;
+            height: 60px;
+            background-color: #4a90e2;
+            border-radius: 50%;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+            cursor: grab;
+            z-index: 2;
+            transition: background-color 0.2s;
+        }
+
+        .joystick-control:active {
+            cursor: grabbing;
+            background-color: #3a7bc8;
+        }
+
+        /* 坐标显示区域 */
+        .coord-display {
+            font-size: 20px;
+            font-family: Arial, sans-serif;
+            color: #333;
+        }
+
+        /* 定时发送信息 */
+        .interval-info {
+            font-size: 14px;
+            color: #666;
+        }
+
+        /* 旋转后的轴标记 */
+        .axis-label {
+            position: absolute;
+            font-size: 12px;
+            color: #666;
+        }
+        .x-plus { bottom: 10px; right: 10px; } /* 右下 */
+        .x-minus { top: 10px; left: 10px; }    /* 左上 */
+        .y-plus { top: 10px; right: 10px; }    /* 右上 */
+        .y-minus { bottom: 10px; left: 10px; } /* 左下 */
+    </style>
 </head>
 <body>
-    <h1>按 W/A/S/D 控制贪吃蛇</h1>
+<h1>1111111</h1>
+<h3>拖动控制点定时发送坐标 (x,y)（x,y轴偏移-45°）</h3>
+<div class="interval-info">发送间隔：100ms（持续发送当前坐标）</div>
+<div class="joystick-container" id="joystickContainer">
+    <div class="joystick-origin"></div>
+    <div class="joystick-control" id="joystickControl"></div>
+    <!-- 旋转后的轴标记 -->
+    <div class="axis-label x-plus">X+（右下）</div>
+    <div class="axis-label x-minus">X-（左上）</div>
+    <div class="axis-label y-plus">Y+（右上）</div>
+    <div class="axis-label y-minus">Y-（左下）</div>
+</div>
+<div class="coord-display" id="coordDisplay">当前坐标: 0,0</div>
 
-    <script>
-        document.addEventListener('keydown', function(event) {
-            const key = event.key.toLowerCase(); // 转为小写
-            if (['w', 'a', 's', 'd'].includes(key)) {
-                console.log(key + ' 键按下');
+<script>
+    // 获取DOM元素
+    const container = document.getElementById('joystickContainer');
+    const control = document.getElementById('joystickControl');
+    const display = document.getElementById('coordDisplay');
 
-                // 构造请求数据
-                const payload = {
-                    message: key,
-                    topic: "esp8266/recv"
-                };
+    // 摇杆配置
+    const containerSize = 300; // 容器尺寸（px）
+    const controlSize = 60;    // 控制点尺寸（px）
+    const maxRange = (containerSize - controlSize) / 2; // 最大移动范围（px）
+    const sendInterval = 100; // 定时发送间隔（毫秒）
+    let isDragging = false;
 
-                // 发送 POST 请求
-                axios.post("http://localhost:8080/mqtt/send", payload, {
-                    headers: {
-                        'Content-Type': 'application/json'
-                    }
-                })
-                .then(response => {
-                    console.log("发送成功:", response.data);
-                })
-                .catch(error => {
-                    console.error("发送失败:", error);
-                });
-            }
-        });
-    </script>
+    // 缓存当前坐标（用于定时发送）
+    let currentX = 0;
+    let currentY = 0;
+
+    // 容器中心坐标（相对于容器）
+    const centerX = containerSize / 2;
+    const centerY = containerSize / 2;
+
+    // 发送当前坐标（独立函数，供拖动和定时任务调用）
+    function sendCurrentCoord() {
+        const coordStr = `${currentX},${currentY}`;
+        // 更新显示
+        display.textContent = `当前坐标: ${coordStr}`;
+        // 发送POST请求
+        const payload = {
+            message: coordStr,
+            topic: "esp8266/recv"
+        };
+        axios.post("http://localhost:8080/mqtt/send", payload, {
+            headers: { 'Content-Type': 'application/json' }
+        })
+            .then(response => {
+                console.log("定时发送成功:", coordStr, response.data);
+            })
+            .catch(error => {
+                console.error("发送失败:", error);
+            });
+    }
+
+    // 计算坐标（x,y轴偏移-45°）并更新缓存
+    function updateCoord(x, y) {
+        // 1. 原始坐标归一化到 -100 ~ 100 范围
+        const normalizedX = Math.round((x / maxRange) * 100);
+        const normalizedY = Math.round((-y / maxRange) * 100); // Y轴反向（上为正）
+
+        // 2. 顺时针旋转45°（偏移-45°）
+        const theta = -Math.PI / 4; // -45°（弧度）
+        const cosTheta = Math.cos(theta); // √2/2 ≈ 0.7071
+        const sinTheta = Math.sin(theta); // -√2/2 ≈ -0.7071
+
+        // 旋转计算
+        let rotatedX = normalizedX * cosTheta - normalizedY * sinTheta;
+        let rotatedY = normalizedX * sinTheta + normalizedY * cosTheta;
+
+        // 3. 缩放回 -100 ~ 100 范围
+        const scale = 1 / Math.sqrt(2); // ≈0.7071
+        rotatedX = rotatedX * scale;
+        rotatedY = rotatedY * scale;
+
+        // 4. 限制范围并更新缓存
+        currentX = Math.round(Math.max(-100, Math.min(100, rotatedX)));
+        currentY = Math.round(Math.max(-100, Math.min(100, rotatedY)));
+    }
+
+    // 计算控制点新位置（限制在容器内）
+    function calculateNewPosition(clientX, clientY) {
+        const rect = container.getBoundingClientRect();
+        const offsetX = clientX - rect.left - centerX;
+        const offsetY = clientY - rect.top - centerY;
+        const distance = Math.sqrt(offsetX * offsetX + offsetY * offsetY);
+
+        if (distance > maxRange) {
+            const scale = maxRange / distance;
+            return {
+                x: centerX + offsetX * scale,
+                y: centerY + offsetY * scale,
+                offsetX: offsetX * scale,
+                offsetY: offsetY * scale
+            };
+        } else {
+            return {
+                x: centerX + offsetX,
+                y: centerY + offsetY,
+                offsetX: offsetX,
+                offsetY: offsetY
+            };
+        }
+    }
+
+    // 鼠标/触摸事件监听
+    control.addEventListener('mousedown', (e) => {
+        isDragging = true;
+        e.preventDefault();
+    });
+
+    document.addEventListener('mousemove', (e) => {
+        if (!isDragging) return;
+        const pos = calculateNewPosition(e.clientX, e.clientY);
+        // 更新控制点位置
+        control.style.left = `${pos.x}px`;
+        control.style.top = `${pos.y}px`;
+        // 更新坐标缓存（不直接发送，由定时任务处理）
+        updateCoord(pos.offsetX, pos.offsetY);
+    });
+
+    document.addEventListener('mouseup', () => {
+        isDragging = false;
+        // 回到中心，更新坐标缓存为0,0
+        control.style.left = `${centerX}px`;
+        control.style.top = `${centerY}px`;
+        currentX = 0;
+        currentY = 0;
+    });
+
+    // 触摸事件支持（移动端）
+    control.addEventListener('touchstart', (e) => {
+        isDragging = true;
+        e.preventDefault();
+    });
+
+    document.addEventListener('touchmove', (e) => {
+        if (!isDragging) return;
+        const touch = e.touches[0];
+        const pos = calculateNewPosition(touch.clientX, touch.clientY);
+        control.style.left = `${pos.x}px`;
+        control.style.top = `${pos.y}px`;
+        updateCoord(pos.offsetX, pos.offsetY);
+        e.preventDefault();
+    });
+
+    document.addEventListener('touchend', () => {
+        isDragging = false;
+        control.style.left = `${centerX}px`;
+        control.style.top = `${centerY}px`;
+        currentX = 0;
+        currentY = 0;
+    });
+
+    // 初始化定时任务（每100ms发送一次当前坐标）
+    setInterval(sendCurrentCoord, sendInterval);
+
+    // 初始化位置和坐标
+    control.style.left = `${centerX}px`;
+    control.style.top = `${centerY}px`;
+    currentX = 0;
+    currentY = 0;
+</script>
 </body>
-</html>

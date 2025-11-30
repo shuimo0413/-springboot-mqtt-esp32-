@@ -44,7 +44,13 @@ public class MqttTestController {
 
     @PostMapping("/send")
     public void sendToSpecifiedTopic(@RequestBody MqttSendDto dto) {
+
         log.info("前端发送了信息: {}", dto);
-        mqttSendGateway.sendToSpecifiedTopic(dto.getTopic(), dto.getMessage());
+//        dto.setMessage("0xA5"+dto.getMessage()+"0"+"0x5A");
+        mqttSendGateway.sendToSpecifiedTopic(dto.getTopic(), "0xA5");
+        mqttSendGateway.sendToSpecifiedTopic(dto.getTopic(), dto.getMessage().split(",")[0]);
+        mqttSendGateway.sendToSpecifiedTopic(dto.getTopic(), dto.getMessage().split(",")[1]);
+        mqttSendGateway.sendToSpecifiedTopic(dto.getTopic(), "0");
+        mqttSendGateway.sendToSpecifiedTopic(dto.getTopic(), "0x5A");
     }
 }
